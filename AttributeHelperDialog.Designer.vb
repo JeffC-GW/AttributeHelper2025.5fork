@@ -216,7 +216,7 @@ Partial Class AttributeHelperDialog
     Friend WithEvents btnExpandAll As System.Windows.Forms.Button
     Friend WithEvents btnCollapseAll As System.Windows.Forms.Button
     Friend WithEvents lblVersion As System.Windows.Forms.Label
-    Friend WithEvents treeView As Windows.Forms.TreeView
-    Friend WithEvents btnHelp As Windows.Forms.Button
-    Friend WithEvents toolTip As Windows.Forms.ToolTip
+    Friend WithEvents treeView As System.Windows.Forms.TreeView
+    Friend WithEvents btnHelp As System.Windows.Forms.Button
+    Friend WithEvents toolTip As System.Windows.Forms.ToolTip
 End Class

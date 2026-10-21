@@ -116,24 +116,30 @@
             m_HighlightSet = Nothing
         End If
 
+        ' WithEvents fields are set to Nothing (which disconnects their event handlers) before
+        ' the COM object is released, otherwise .NET raises a "separated from its underlying RCW" error.
         If Not m_DocEvents Is Nothing Then
-            System.Runtime.InteropServices.Marshal.ReleaseComObject(m_DocEvents)
+            Dim docEvents As Inventor.DocumentEvents = m_DocEvents
             m_DocEvents = Nothing
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(docEvents)
         End If
 
         If Not m_InputEvents Is Nothing Then
-            System.Runtime.InteropServices.Marshal.ReleaseComObject(m_InputEvents)
+            Dim inputEvents As Inventor.UserInputEvents = m_InputEvents
             m_InputEvents = Nothing
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(inputEvents)
         End If
 
         If Not m_AddAttributeSetButtonDef Is Nothing Then
-            System.Runtime.InteropServices.Marshal.ReleaseComObject(m_AddAttributeSetButtonDef)
+            Dim addAttributeSetButtonDef As Inventor.ButtonDefinition = m_AddAttributeSetButtonDef
             m_AddAttributeSetButtonDef = Nothing
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(addAttributeSetButtonDef)
         End If
 
         If Not m_FindAttributeInDialogButtonDef Is Nothing Then
-            System.Runtime.InteropServices.Marshal.ReleaseComObject(m_FindAttributeInDialogButtonDef)
+            Dim findAttributeInDialogButtonDef As Inventor.ButtonDefinition = m_FindAttributeInDialogButtonDef
             m_FindAttributeInDialogButtonDef = Nothing
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(findAttributeInDialogButtonDef)
         End If
 
         Me.InventorDocument = Nothing
@@ -404,6 +410,14 @@
         ' and is controlled by the user using the selection options.  One issue is
         ' that I don't get notified if the Escape key is pressed while in the NW arrow
         ' command so I can't terminate based on that.
+        Debug.WriteLine("AttributeHelper command event: " & CommandName)
+
+        ' Ignore the commands this add-in starts itself (the select command run from Load and the
+        ' Attribute Helper button), which can be reported after the dialog is already shown.
+        If CommandName = "AppSelectNorthwestArrowCmd" Or CommandName = "ekinsAttributeHelper" Then
+            Exit Sub
+        End If
+
         If Not (CommandName.Contains("ViewCmd") Or CommandName.Contains("WindowCmd")) Then
             m_HighlightSet.Clear()
 
@@ -802,7 +816,7 @@
             Dim badAttribute As Boolean = False
             Do
                 editDialog.ShowDialog()
-                If editDialog.DialogResult = Windows.Forms.DialogResult.OK Then
+                If editDialog.DialogResult = System.Windows.Forms.DialogResult.OK Then
                     If CreateAttribute(editDialog.AttributeName, editDialog.AttributeType, editDialog.AttributeValue, treeView.SelectedNode) Then
                         badAttribute = False
                     Else
@@ -850,7 +864,7 @@
             Dim badAttribute As Boolean = False
             Do
                 editDialog.ShowDialog()
-                If editDialog.DialogResult = Windows.Forms.DialogResult.OK Then
+                If editDialog.DialogResult = System.Windows.Forms.DialogResult.OK Then
                     If EditAttribute(editDialog.AttributeName, editDialog.AttributeValue, treeView.SelectedNode) Then
                         badAttribute = False
                     Else
@@ -962,14 +976,14 @@
     End Sub
 
     Private Sub btnHelp_Click(sender As Object, e As EventArgs) Handles btnHelp.Click
-        Dim helpFile As String = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().CodeBase)
+        Dim helpFile As String = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location)
         If helpFile.StartsWith("file:\") Then
             helpFile = helpFile.Substring("file:\".Length)
         End If
         helpFile = helpFile & "\AttributeHelperReadMe.pdf"
 
         If System.IO.File.Exists(helpFile) Then
-            Process.Start(helpFile)
+            Process.Start(New ProcessStartInfo(helpFile) With {.UseShellExecute = True})
         Else
             MsgBox("Problem locating help file.")
         End If

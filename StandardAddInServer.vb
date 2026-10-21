@@ -32,18 +32,25 @@ Namespace AttributeHelper
         End Sub
 
         Public Sub Deactivate() Implements Inventor.ApplicationAddInServer.Deactivate
-            ' Release objects.
-            Marshal.FinalReleaseComObject(g_inventorApplication)
-            g_inventorApplication = Nothing
-
+            ' Release objects.  WithEvents fields are set to Nothing (which disconnects their
+            ' event handlers) before the COM object is released; .NET raises "COM object that
+            ' has been separated from its underlying RCW" if the release happens first.
             If Not m_attributeButtonDef Is Nothing Then
-                Marshal.FinalReleaseComObject(m_attributeButtonDef)
+                Dim buttonDef As ButtonDefinition = m_attributeButtonDef
+                m_attributeButtonDef = Nothing
+                Marshal.FinalReleaseComObject(buttonDef)
             End If
 
             If Not m_UIEvents Is Nothing Then
-                Marshal.FinalReleaseComObject(m_UIEvents)
+                Dim uiEvents As UserInterfaceEvents = m_UIEvents
                 m_UIEvents = Nothing
+                Marshal.FinalReleaseComObject(uiEvents)
             End If
+
+            ' The Application object is not force-released.  In .NET (Core) all add-ins share one
+            ' runtime and therefore one RCW for the Application, so FinalReleaseComObject would
+            ' detach it for other add-ins that still use it during Inventor's shutdown.
+            g_inventorApplication = Nothing
 
             System.GC.WaitForPendingFinalizers()
             System.GC.Collect()
@@ -142,9 +149,17 @@ Namespace AttributeHelper
         Public g_inventorApplication As Inventor.Application
 
         Public NotInheritable Class PictureDispConverter
+            ' UnmanagedType.AsAny is not supported in .NET, so a typed overload is declared for each PICTDESC class.
             <DllImport("OleAut32.dll", EntryPoint:="OleCreatePictureIndirect", ExactSpelling:=True, PreserveSig:=False)> _
             Private Shared Function OleCreatePictureIndirect( _
-            <MarshalAs(UnmanagedType.AsAny)> ByVal picdesc As Object, _
+            ByVal picdesc As PICTDESC.Icon, _
+            ByRef iid As Guid, _
+            <MarshalAs(UnmanagedType.Bool)> ByVal fOwn As Boolean) As stdole.IPictureDisp
+            End Function
+
+            <DllImport("OleAut32.dll", EntryPoint:="OleCreatePictureIndirect", ExactSpelling:=True, PreserveSig:=False)> _
+            Private Shared Function OleCreatePictureIndirect( _
+            ByVal picdesc As PICTDESC.Bitmap, _
             ByRef iid As Guid, _
             <MarshalAs(UnmanagedType.Bool)> ByVal fOwn As Boolean) As stdole.IPictureDisp
             End Function

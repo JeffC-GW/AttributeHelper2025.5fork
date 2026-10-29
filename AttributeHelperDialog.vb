@@ -9,6 +9,7 @@
     Private m_ObjectList As New Collection
     Private m_SelectedEntity As Object
     Private m_LastMousePosition As System.Drawing.Point
+    Private m_ChangesHandled As Boolean = False   ' True once pending edits have been saved or discarded.
 
     Private WithEvents m_DocEvents As Inventor.DocumentEvents
     Private WithEvents m_InputEvents As Inventor.UserInputEvents
@@ -29,18 +30,22 @@
     Private Sub OK_Button_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles OK_Button.Click
         Try
             ' Apply the results.
-            If m_Entities.HasChanges Then
-                For Each entity As MyEntity In m_Entities
-                    UpdateEntity(entity)
-                Next
-            End If
+            ApplyChanges()
 
-            CleanUp()
+            m_ChangesHandled = True
             Me.DialogResult = System.Windows.Forms.DialogResult.OK
             Me.Close()
         Catch ex As Exception
             MsgBox("Unexepected failure exiting the form with OK.")
         End Try
+    End Sub
+
+    Private Sub ApplyChanges()
+        If Not m_Entities Is Nothing AndAlso m_Entities.HasChanges Then
+            For Each entity As MyEntity In m_Entities
+                UpdateEntity(entity)
+            Next
+        End If
     End Sub
 
     Private Sub UpdateEntity(ByVal Entity As MyEntity)
@@ -95,13 +100,14 @@
 
     Private Sub Cancel_Button_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles Cancel_Button.Click
         Try
-            If m_Entities.HasChanges Then
+            ' This is also run when Escape is pressed because Cancel_Button is the form's CancelButton.
+            If Not m_Entities Is Nothing AndAlso m_Entities.HasChanges Then
                 If MsgBox("Canceling will lose the edits that have been made.  Do you want to continue and loose them?", MsgBoxStyle.Question + MsgBoxStyle.YesNo) = MsgBoxResult.No Then
                     Exit Sub
                 End If
             End If
 
-            CleanUp()
+            m_ChangesHandled = True
             Me.DialogResult = System.Windows.Forms.DialogResult.Cancel
             Me.Close()
         Catch ex As Exception
@@ -109,39 +115,80 @@
         End Try
     End Sub
 
+    ' Every way of closing the form (OK, Cancel, Escape, the X button, Alt+F4, another command
+    ' starting, or Inventor shutting down) comes through here.  If the close didn't come from OK or
+    ' Cancel, which already dealt with any edits, ask what to do with them.
+    Private Sub AttributeHelperDialog_FormClosing(ByVal sender As Object, ByVal e As System.Windows.Forms.FormClosingEventArgs) Handles MyBase.FormClosing
+        Try
+            If Not m_ChangesHandled AndAlso Not m_Entities Is Nothing AndAlso m_Entities.HasChanges Then
+                If e.CloseReason = CloseReason.UserClosing Then
+                    Select Case MsgBox("You have made changes to attribute data.  Do you want to save the changes?", MsgBoxStyle.YesNoCancel + MsgBoxStyle.Question, "Save Attribute Changes")
+                        Case MsgBoxResult.Yes
+                            ApplyChanges()
+                        Case MsgBoxResult.Cancel
+                            e.Cancel = True
+                            Exit Sub
+                    End Select
+                Else
+                    ' Inventor or Windows is closing, so the close can't be canceled.
+                    If MsgBox("You have made changes to attribute data.  Do you want to save the changes?", MsgBoxStyle.YesNo + MsgBoxStyle.Question, "Save Attribute Changes") = MsgBoxResult.Yes Then
+                        ApplyChanges()
+                    End If
+                End If
+            End If
+
+            m_ChangesHandled = True
+        Catch ex As Exception
+            MsgBox("Unexepected failure while closing the form.")
+        End Try
+    End Sub
+
+    Private Sub AttributeHelperDialog_FormClosed(ByVal sender As Object, ByVal e As System.Windows.Forms.FormClosedEventArgs) Handles MyBase.FormClosed
+        CleanUp()
+    End Sub
+
     Private Sub CleanUp()
-        If Not m_HighlightSet Is Nothing Then
-            m_HighlightSet.Clear()
-            System.Runtime.InteropServices.Marshal.ReleaseComObject(m_HighlightSet)
-            m_HighlightSet = Nothing
-        End If
+        ' Each step is protected independently so that one failure (for example, the document was
+        ' already closed) doesn't leave the Inventor event handlers connected.  A connected
+        ' OnLinearMarkingMenu handler would keep emptying Inventor's context menu after the form is gone.
 
         ' WithEvents fields are set to Nothing (which disconnects their event handlers) before
         ' the COM object is released, otherwise .NET raises a "separated from its underlying RCW" error.
-        If Not m_DocEvents Is Nothing Then
-            Dim docEvents As Inventor.DocumentEvents = m_DocEvents
-            m_DocEvents = Nothing
-            System.Runtime.InteropServices.Marshal.ReleaseComObject(docEvents)
-        End If
-
         If Not m_InputEvents Is Nothing Then
             Dim inputEvents As Inventor.UserInputEvents = m_InputEvents
             m_InputEvents = Nothing
-            System.Runtime.InteropServices.Marshal.ReleaseComObject(inputEvents)
+            ReleaseComObjectSafe(inputEvents)
+        End If
+
+        If Not m_DocEvents Is Nothing Then
+            Dim docEvents As Inventor.DocumentEvents = m_DocEvents
+            m_DocEvents = Nothing
+            ReleaseComObjectSafe(docEvents)
         End If
 
         If Not m_AddAttributeSetButtonDef Is Nothing Then
             Dim addAttributeSetButtonDef As Inventor.ButtonDefinition = m_AddAttributeSetButtonDef
             m_AddAttributeSetButtonDef = Nothing
-            System.Runtime.InteropServices.Marshal.ReleaseComObject(addAttributeSetButtonDef)
+            ReleaseComObjectSafe(addAttributeSetButtonDef)
         End If
 
         If Not m_FindAttributeInDialogButtonDef Is Nothing Then
             Dim findAttributeInDialogButtonDef As Inventor.ButtonDefinition = m_FindAttributeInDialogButtonDef
             m_FindAttributeInDialogButtonDef = Nothing
-            System.Runtime.InteropServices.Marshal.ReleaseComObject(findAttributeInDialogButtonDef)
+            ReleaseComObjectSafe(findAttributeInDialogButtonDef)
         End If
 
+        If Not m_HighlightSet Is Nothing Then
+            Try
+                m_HighlightSet.Clear()
+            Catch ex As Exception
+                ' Do nothing.  The document may already be closed.
+            End Try
+            ReleaseComObjectSafe(m_HighlightSet)
+            m_HighlightSet = Nothing
+        End If
+
+        m_SelectedEntity = Nothing
         Me.InventorDocument = Nothing
 
         System.GC.WaitForPendingFinalizers()
@@ -149,6 +196,14 @@
 
         m_Entities = Nothing
         m_ObjectList = Nothing
+    End Sub
+
+    Private Shared Sub ReleaseComObjectSafe(ByVal comObject As Object)
+        Try
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(comObject)
+        Catch ex As Exception
+            ' Do nothing.  The object has already been released.
+        End Try
     End Sub
 
     Private Sub AttributeHelperDialog_Load(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles MyBase.Load
@@ -418,20 +473,22 @@
             Exit Sub
         End If
 
+        ' More command events can arrive while the save prompt below is displayed.
+        If m_ChangesHandled Then
+            Exit Sub
+        End If
+
         If Not (CommandName.Contains("ViewCmd") Or CommandName.Contains("WindowCmd")) Then
-            m_HighlightSet.Clear()
+            m_ChangesHandled = True
 
             ' Check to see if changes have been made.
             If m_Entities.HasChanges Then
                 ' See if they want the changes saved.
                 If MsgBox("You are aborting the Attribute Helper command and have made changes to attribute data.  Do you want to save the changes?", MsgBoxStyle.YesNo + MsgBoxStyle.Question, "Save Attribute Changes") = MsgBoxResult.Yes Then
-                    For Each entity As MyEntity In m_Entities
-                        UpdateEntity(entity)
-                    Next
+                    ApplyChanges()
                 End If
             End If
 
-            CleanUp()
             Me.Close()
         End If
     End Sub

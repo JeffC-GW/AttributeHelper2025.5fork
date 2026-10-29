@@ -12,6 +12,7 @@ Namespace AttributeHelper
         ' Inventor application object.
         Private WithEvents m_attributeButtonDef As ButtonDefinition
         Private WithEvents m_UIEvents As UserInterfaceEvents
+        Private m_dialog As AttributeHelperDialog
 
 #Region "ApplicationAddInServer Members"
 
@@ -32,6 +33,12 @@ Namespace AttributeHelper
         End Sub
 
         Public Sub Deactivate() Implements Inventor.ApplicationAddInServer.Deactivate
+            ' Close the dialog if it's still open so it disconnects from Inventor's events.
+            If Not m_dialog Is Nothing AndAlso Not m_dialog.IsDisposed Then
+                m_dialog.Close()
+            End If
+            m_dialog = Nothing
+
             ' Release objects.  WithEvents fields are set to Nothing (which disconnects their
             ' event handlers) before the COM object is released; .NET raises "COM object that
             ' has been separated from its underlying RCW" if the release happens first.
@@ -92,11 +99,16 @@ Namespace AttributeHelper
 #End Region
 
         Private Sub m_attributeButtonDef_OnExecute(ByVal Context As Inventor.NameValueMap) Handles m_attributeButtonDef.OnExecute
+            ' Only one dialog is allowed at a time, since each one hooks Inventor's input events.
+            If Not m_dialog Is Nothing AndAlso Not m_dialog.IsDisposed Then
+                m_dialog.Activate()
+                Exit Sub
+            End If
+
             If Not g_inventorApplication.ActiveEditDocument Is Nothing Then
                 ' Stop the currently running command.
                 g_inventorApplication.CommandManager.StopActiveCommand()
 
-                Dim m_dialog As AttributeHelperDialog
                 m_dialog = New AttributeHelperDialog
                 m_dialog.InventorDocument = g_inventorApplication.ActiveEditDocument
                 m_dialog.Show(New WindowWrapper(g_inventorApplication.MainFrameHWND))
